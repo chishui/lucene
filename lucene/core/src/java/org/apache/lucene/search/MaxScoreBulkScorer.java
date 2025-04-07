@@ -141,7 +141,7 @@ final class MaxScoreBulkScorer extends BulkScorer {
       }
 
       while (groupedDisi.getCurrent() != null && top.doc >= groupedDisi.getCurrent().upper) {
-          groupedDisi.next();
+          groupedDisi.nextWithLowerDocId(top.doc);
       }
 
       while (groupedDisi.getCurrent() != null && top.doc < groupedDisi.getCurrent().lower) {
@@ -204,7 +204,7 @@ final class MaxScoreBulkScorer extends BulkScorer {
 
     while (top.doc < innerWindowMax) {
       while (groupedDisi.getCurrent() != null && top.doc >= groupedDisi.getCurrent().upper) {
-        groupedDisi.next();
+        groupedDisi.nextWithLowerDocId(top.doc);
       }
 
       if ( groupedDisi.getCurrent() != null && top.doc < groupedDisi.getCurrent().lower) {

@@ -3,8 +3,10 @@ package org.apache.lucene.search;
 import org.apache.lucene.index.LeafReaderContext;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.List;
 
 /**
  * This is a group iterator that groups documents by the value of a field. It is used to group
@@ -12,24 +14,49 @@ import java.util.Iterator;
  */
 public class GroupedDisi implements Iterator<GroupedDisi.DocBound> {
 
-    private final Collection<Integer> groupValues;
+    private Collection<DocBound> docBounds;
     private final LeafReaderContext context;
-    private Iterator<Integer> groupIterator;
+    private Iterator<DocBound> groupIterator;
     private DocBound current;
+
+    private static final Integer MINIMUM_GROUP_MERGE_GAP = 5;
 
     public DocBound getCurrent() {
         return current;
     }
 
-    GroupedDisi(LeafReaderContext context, Collection<Integer> groupValues) {
+    // We assume groupValues should be sorted already.
+    private List<DocBound> mergeToGroupBounds(Collection<Integer> groupValues) {
+        List<DocBound> bounds = new ArrayList<>();
+        if (groupValues == null || groupValues.isEmpty()) return bounds;
+        Iterator<Integer> groupValueIterator = groupValues.iterator();
+        Integer group = groupValueIterator.next();
+        bounds.add(new DocBound(group, group));
+        while (groupValueIterator.hasNext()) {
+            Integer nextGroup = groupValueIterator.next();
+            if (nextGroup - group <= MINIMUM_GROUP_MERGE_GAP) {
+                bounds.getLast().upper = nextGroup;
+            } else {
+                bounds.add(new DocBound(nextGroup, nextGroup));
+            }
+            group = nextGroup;
+        }
+        return bounds;
+    }
+
+    public GroupedDisi(LeafReaderContext context, Collection<Integer> groupValues) {
         this.context = context;
-        this.groupValues = groupValues;
-        this.groupIterator = this.groupValues.iterator();
+        this.docBounds = mergeToGroupBounds(groupValues);
+        this.groupIterator = this.docBounds.iterator();
     }
 
     private DocBound nextGroup() throws IOException {
+        return nextGroup(0);
+    }
+
+    private DocBound nextGroup(int lowDoc) throws IOException {
         if (!groupIterator.hasNext()) return null;
-        int groupValue = groupIterator.next();
+        DocBound groupBound = groupIterator.next();
 
         Sort indexSort = this.context.reader().getMetaData().sort();
         if (indexSort != null
@@ -39,11 +66,11 @@ public class GroupedDisi implements Iterator<GroupedDisi.DocBound> {
             final SortField.Type sortFieldType = getSortFieldType(sortField);
 
             int maxDoc = this.context.reader().maxDoc();
-            int lower = groupValue;
-            int upper = groupValue;
+            int lower = groupBound.lower;
+            int upper = groupBound.upper;
             // Perform a binary search to find the first document with value >= lower.
             ValueComparator comparator = loadComparator(sortField, sortFieldType, lower, this.context);
-            int low = 0;
+            int low = lowDoc;
             int high = maxDoc - 1;
 
             while (low <= high) {
@@ -92,6 +119,15 @@ public class GroupedDisi implements Iterator<GroupedDisi.DocBound> {
     public DocBound next() {
         try {
             current = nextGroup();
+            return current;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    public DocBound nextWithLowerDocId(int lower) {
+        try {
+            current = nextGroup(lower);
             return current;
         } catch (IOException e) {
             return null;
